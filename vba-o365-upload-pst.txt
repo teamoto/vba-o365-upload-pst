@@ -1,0 +1,294 @@
+﻿Public log As Double
+
+Sub moveMutiplePstsToOnlineArchive()
+    Dim olApp As Outlook.Application
+    Dim olNs As Outlook.NameSpace
+    Dim olPickedFolder As Outlook.MAPIFolder
+    Dim olDestFolder As Outlook.MAPIFolder
+    Dim pstPaths() As Outlook.MAPIFolder
+    Dim processMultiplePsts As String
+    Dim processNumber As Long
+    Dim completionMessage As String
+    
+    
+    
+    
+    'outlook vba initiation
+    Set olApp = New Outlook.Application
+    Set olNs = olApp.GetNamespace("MAPI")
+    
+    'determine how many pst files to upload
+    processMultiplePsts = MsgBox("Do you wnat to upload multiple pst files?", vbYesNo + vbQuestion, "Confirmation")
+    If processMultiplePsts = vbYes Then
+        Do
+            processNumber = InputBox("Please input how many pst files you want to upload...")
+        Loop Until IsNumeric(processNumber)
+        
+        
+    Else
+        
+        processNumber = 1
+        
+    End If
+
+    For i = 0 To processNumber - 1
+        ReDim Preserve pstPaths(processNumber - 1)
+        Set olPickedFolder = olNs.pickFolder
+        Set pstPaths(i) = olPickedFolder
+        Set olPickedFolder = Nothing
+    Next i
+    
+    'Set dest folder (online archive)
+    MsgBox "Please choose online archive folder..."
+    Set olDestFolder = olNs.pickFolder
+    
+    For i = LBound(pstPaths) To UBound(pstPaths)
+    
+        Debug.Print pstPaths(i).Name
+        completionMessage = completionMessage & vbCrLf & pstPaths(i).Name
+        Call copyPstToOnlineArchive(pstPaths(i), olDestFolder)
+        
+    Next i
+    
+    
+    
+    MsgBox ("Completed in uploading the specified folders to online archive: " & vbCrLf & Now & vbCrLf & "Completed following psts: " & vbCrLf & completionMessage)
+
+End Sub
+
+
+Private Sub copyPstToOnlineArchive(olTargetFolder As Outlook.MAPIFolder, olDestFolder As Outlook.MAPIFolder)
+
+
+    Dim olApp As Outlook.Application
+    Dim olNs As Outlook.NameSpace
+    Dim olSubFolder As Outlook.MAPIFolder
+    Dim olNextDestFolder As Outlook.MAPIFolder
+    Dim startTime As Variant
+    Dim endTime As Variant
+    
+    
+    'Record starting time
+    startTime = Now
+    
+    
+    'Initiate logging procedure
+    log = FreeFile()
+
+    
+    
+    Set olApp = New Outlook.Application
+    Set olNs = olApp.GetNamespace("MAPI")
+    
+    'Set target folder
+    'MsgBox "Please choose copy from folder..."
+    'Set olTargetFolder = olNs.pickFolder
+    
+    
+    'Set dest Folder
+    'MsgBox "Please choose copy to folder..."
+    'Set olDestFolder = olNs.pickFolder
+      
+    On Error Resume Next
+    'Logging
+    Open "C:\outlook\" & olTargetFolder & "_log.txt" For Output As #log
+    If Err.Number = 52 Then
+        Dim logFileName As String
+        'logFileName = InputBox("Please specify log file name...")
+        logFileName = Format(Now, "MM_dd_yyyy-hh_mm")
+        Open "C:\outlook\" & logFileName & "_log.txt" For Output As #log
+        'Clear Error
+        Err.Clear
+    End If
+    
+    
+    
+    
+    Call processLogging(". Starting Time: " & startTime)
+    
+    'Processing parent folder
+     Set olNextDestFolder = processFolder(olTargetFolder, olDestFolder)
+    
+    'Check its subfolder
+    If olTargetFolder.Folders.Count > 0 Then
+        
+        Call processSubfolders(olTargetFolder, olNextDestFolder)
+    
+    End If
+    
+    
+    'Record Ending time
+    endTime = Now
+    
+    Call processLogging(". Ending Time: " & endTime)
+    'Closing logging session
+    Close #log
+    log = 0
+    
+    
+    'MsgBox "Procedure Ended" & vbCrLf & "Starting Time: " & startTime & vbCrLf & "Ending Time: " & endTime
+    
+
+End Sub
+Sub processSubfolders(olCurrentFolder As Outlook.MAPIFolder, olNextDestFolder As Outlook.MAPIFolder)
+
+    Dim i As Double
+    Dim olTempFolder As Outlook.MAPIFolder
+    Dim olSubFolder As Outlook.MAPIFolder
+    Dim olFollowingDestFolder As Outlook.MAPIFolder
+    Dim olSubSubFolder As Outlook.MAPIFolder
+    Dim olNewFolder As Outlook.MAPIFolder
+    
+    For i = olCurrentFolder.Folders.Count To 1 Step -1
+    
+    
+        Set olTempFolder = olCurrentFolder.Folders(i)
+        
+        'If olTempFolder.Name <> "Deleted Items" Then
+            Set olFollowingDestFolder = processFolder(olTempFolder, olNextDestFolder)
+            
+            'If olTempFolder.Folders.Count > 0 And olTempFolder.Name <> "Deleted Items" Then
+             If olTempFolder.Folders.Count > 0 Then
+                For Each olSubSubFolder In olTempFolder.Folders
+    
+                    Set olNewFolder = processFolder(olSubSubFolder, olFollowingDestFolder)
+                    Call processSubfolders(olSubSubFolder, olNewFolder)
+                    
+    
+                
+                Next olSubSubFolder
+            
+            End If
+            
+        'End If
+    Next i
+
+End Sub
+
+
+
+Function processFolder(olTargetFolder As Outlook.MAPIFolder, olDestFolder As Outlook.MAPIFolder) As Outlook.MAPIFolder
+
+    Dim olAddedFolder As Outlook.MAPIFolder
+    Dim i As Double
+    
+    'Create a folder named after the target folder
+    Set olAddedFolder = olDestFolder.Folders.Add(olTargetFolder.Name)
+        
+    
+    'Check if the current folder is empty or deleted folder
+    'If olTargetFolder.items.Count <> 0 Or olTargetFolder.Name <> "Deleted Items" Then
+    If olTargetFolder.items.Count <> 0 Then
+        Call processLogging("Folder -- " & olTargetFolder.Name & "(Item Count: " & CStr(olTargetFolder.items.Count) & ")")
+        
+        'Start copying emails in the current folder
+        For i = olTargetFolder.items.Count To 1 Step -1
+            
+            processLogging ("Message " & CStr(olTargetFolder.items.Count - i + 1) & " in " & olTargetFolder.Name)
+            Call copyMsgToOnlineArchive(olTargetFolder.items(i), olAddedFolder)
+            
+
+        Next i
+    End If
+    
+    Set processFolder = olAddedFolder
+
+
+End Function
+Sub copyMsgToOnlineArchive(olCopiedItem As Variant, olDestFolder As Outlook.MAPIFolder)
+    
+    Dim olCopiedMessage As Variant
+    'On error, skip the process
+    On Error GoTo errHandler
+    Set olCopiedMessage = Nothing
+
+    
+i_return:
+
+    'In case of returned from error handler, check olCopiedMessage variable
+    If TypeName(olCopiedMessage) = "MailItem" Then
+           'If the variable is not empty, then go ahead and resume the process
+           olCopiedMessage.Move olDestFolder
+    Else
+        'Copy a message
+        Set olCopiedMessage = olCopiedItem
+        'Move the copied message to destinate
+        olCopiedMessage.Move olDestFolder
+        'olCopiedItem olDestFolder
+    End If
+    
+    'Logging
+    Call processLogging(CStr(olCopiedMessage.Subject) & " :Received " & CStr(olCopiedMessage.ReceivedTime))
+   
+
+    
+    'Empty the variable
+    Set olCopiedMessage = Nothing
+    Exit Sub
+    
+errHandler:
+    
+
+        
+    If CStr(Err.Description) = "Network problems are preventing connection to Microsoft Exchange." Or CStr(Err.Number) = "-2147221227" Then
+        
+        Call processLogging("Error Occurred: " & Err.Number & "-" & Err.Description)
+        
+
+        
+        Call processLogging("Waiting for 2 minutes to retry...")
+        'wait 2 min
+        Call PauceProcedure("0:02:00")
+        'Retry
+        
+
+
+        Resume i_return
+            
+            
+    Else
+        If Err.Number = 0 Or Err.Number = 438 Or Err.Number = 91 Then
+            'Do nothing
+            
+
+        Else
+            Call processLogging("Error Occurred: " & Err.Number & "-" & Err.Description)
+
+        End If
+    End If
+    
+    
+    Set olCopiedMessage = Nothing
+    
+    Exit Sub
+
+    
+
+
+
+End Sub
+Sub processLogging(inputStr As String)
+    
+    Dim s As String
+    s = Now & " - Processing: " & inputStr & " ..."
+    Print #log, s
+    Debug.Print s
+    
+    
+End Sub
+
+Private Sub PauceProcedure(waittime As Variant)
+    
+    Dim currenttime As Date
+     
+    currenttime = Now
+    Do Until currenttime + TimeValue(waittime) <= Now
+    Loop
+    
+End Sub
+
+
+
+
+
+
